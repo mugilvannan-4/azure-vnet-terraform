@@ -1,0 +1,126 @@
+name: "Terraform: dev/eastus"
+
+on:
+  pull_request:
+    paths:
+      - "environments/dev/eastus/**"
+      - "modules/**"
+  push:
+    branches: [main]
+    paths:
+      - "environments/dev/eastus/**"
+      - "modules/**"
+
+# Required for OIDC login to Azure - no client secret stored anywhere.
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+env:
+  WORKING_DIR: environments/dev/eastus
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  ARM_USE_OIDC: true
+
+jobs:
+  # Runs on every PR: validates and shows a plan for review before anything
+  # ever touches Azure. Nothing here mutates infrastructure.
+  plan:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIR }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.5"
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: terraform fmt check
+        run: terraform fmt -check -recursive
+        working-directory: .
+
+      - name: Module unit tests (terraform test)
+        working-directory: modules/vnet
+        run: |
+          terraform init
+          terraform test
+
+      - name: terraform init (env)
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ secrets.TFSTATE_RG }}" \
+            -backend-config="storage_account_name=${{ secrets.TFSTATE_SA }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=dev-eastus.tfstate"
+
+      - name: terraform validate
+        run: terraform validate
+
+      - name: terraform plan
+        run: |
+          terraform plan -no-color -out=tfplan \
+            -var="vm_admin_ssh_public_key=${{ secrets.VM_SSH_PUBLIC_KEY }}" \
+            | tee plan_output.txt
+
+      - name: Comment plan on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('${{ env.WORKING_DIR }}/plan_output.txt', 'utf8').slice(-60000);
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `#### Terraform Plan - dev/eastus\n<details><summary>Show plan</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>`
+            });
+
+  # Only runs after a merge to main - i.e. after the plan above has been
+  # reviewed and approved via the PR. `environment: dev` lets you attach a
+  # required reviewer / wait timer in repo settings without changing this file.
+  apply:
+    needs: plan
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: dev
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIR }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.5"
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: terraform init
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ secrets.TFSTATE_RG }}" \
+            -backend-config="storage_account_name=${{ secrets.TFSTATE_SA }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=dev-eastus.tfstate"
+
+      - name: terraform apply
+        run: |
+          terraform apply -auto-approve \
+            -var="vm_admin_ssh_public_key=${{ secrets.VM_SSH_PUBLIC_KEY }}"
