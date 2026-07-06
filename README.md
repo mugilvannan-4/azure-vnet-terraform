@@ -17,10 +17,12 @@ This repo automatically builds a small dev environment in Azure using Terraform.
 
 ## Repo structure
 
+```
 azure-vnet-terraform/
 ├── modules/vnet/            # reusable network module
 ├── environments/dev/eastus/ # dev environment that uses the module
 └── .github/workflows/       # plan-on-PR, apply-on-merge pipeline
+```
 
 ## Usage
 
@@ -41,14 +43,20 @@ See `DESIGN.md` for the reasoning behind the naming, tagging, resource group vs.
 
 ## Output
 
+Actual output from `terraform apply` (region: Central India, resource names reflect that):
+
+```
 Apply complete! Resources: 1 added, 0 changed, 0 destroyed.
 
 Outputs:
 
-resource_group_name = "rg-dev-cin"
+resource_group_name  = "rg-dev-cin"
 storage_account_name = "stdevcindiag"
 subnet_ids = {
   "apptest" = "/subscriptions/4af04c58-ccfa-49db-b0a9-0aba79f704d6/resourceGroups/rg-dev-cin/providers/Microsoft.Network/virtualNetworks/vnet-dev-cin/subnets/apptest"
 }
 vm_public_ip = "20.235.114.247"
-vnet_id = "/subscriptions/4af04c58-ccfa-49db-b0a9-0aba79f704d6/resourceGroups/rg-dev-cin/providers/Microsoft.Network/virtualNetworks/vnet-dev-cin"
+vnet_id      = "/subscriptions/4af04c58-ccfa-49db-b0a9-0aba79f704d6/resourceGroups/rg-dev-cin/providers/Microsoft.Network/virtualNetworks/vnet-dev-cin"
+```
+
+
