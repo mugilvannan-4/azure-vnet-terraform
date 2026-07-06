@@ -7,6 +7,11 @@ locals {
   }
 }
 
+locals {
+  name_prefix = "${var.environment}-${var.location_short}"
+  app_subnet  = "apptest"
+}
+
 resource "azurerm_resource_group" "this" {
   name     = "rg-${local.name_prefix}"
   location = var.location
